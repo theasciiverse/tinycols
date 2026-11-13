@@ -1,5 +1,9 @@
+#include <locale.h>
 #include <ncurses.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -19,6 +23,14 @@ int tick_time;
 int chain_num;
 bool debug_mode = false;
 
+/* Where the board is drawn: centred in the terminal, recomputed each frame */
+int origin_x;
+int origin_y;
+
+/* Best score per game class (novice, amateur, pro), kept in the state folder */
+unsigned long best_scores[3];
+static char best_path[1024];
+
 static void scan_grid(struct game *gm, unsigned int t);
 
 /**
@@ -29,6 +41,10 @@ static void scan_grid(struct game *gm, unsigned int t);
 void process_keys(struct game *gm)
 {
 	int ch = wgetch(win);
+	if (ch == KEY_RESIZE) {
+		erase();
+		return;
+	}
 	if (ch == 'p') {
 		gm->status = (gm->status == GAME_PAUSED) ? GAME_READY :
 								 GAME_PAUSED;
@@ -163,6 +179,179 @@ void game_tick(struct game *gm)
 }
 
 /**
+ * class_index() - The best-score slot for a game class.
+ */
+static int class_index(enum game_class cls)
+{
+	switch (cls) {
+	case CLASS_NOVICE:
+		return 0;
+	case CLASS_PRO:
+		return 2;
+	default:
+		return 1;
+	}
+}
+
+/**
+ * make_dirs() - Create a folder and its parents, like mkdir -p.
+ */
+static void make_dirs(char *path)
+{
+	for (char *p = path + 1; *p; p++) {
+		if (*p == '/') {
+			*p = '\0';
+			mkdir(path, 0755);
+			*p = '/';
+		}
+	}
+	mkdir(path, 0755);
+}
+
+/**
+ * init_best() - Find the state folder and read the best scores from it.
+ *
+ * $XDG_STATE_HOME/tinycols, else ~/.local/state/tinycols
+ * (~/Library/Application Support/tinycols on macOS).
+ */
+static void init_best(void)
+{
+	char dir[900];
+	const char *xdg = getenv("XDG_STATE_HOME");
+	const char *home = getenv("HOME");
+	if (xdg != NULL && xdg[0] == '/') {
+		snprintf(dir, sizeof(dir), "%s/tinycols", xdg);
+	} else if (home != NULL && home[0] != '\0') {
+#ifdef __APPLE__
+		snprintf(dir, sizeof(dir),
+			 "%s/Library/Application Support/tinycols", home);
+#else
+		snprintf(dir, sizeof(dir), "%s/.local/state/tinycols", home);
+#endif
+	} else {
+		return;
+	}
+	make_dirs(dir);
+	snprintf(best_path, sizeof(best_path), "%s/best", dir);
+
+	FILE *f = fopen(best_path, "r");
+	if (f == NULL) {
+		return;
+	}
+	char name[32];
+	unsigned long value;
+	while (fscanf(f, "%31s %lu", name, &value) == 2) {
+		if (strcmp(name, "novice") == 0) {
+			best_scores[0] = value;
+		} else if (strcmp(name, "amateur") == 0) {
+			best_scores[1] = value;
+		} else if (strcmp(name, "pro") == 0) {
+			best_scores[2] = value;
+		}
+	}
+	fclose(f);
+}
+
+/**
+ * save_best() - Write the best scores back to the state folder.
+ */
+static void save_best(void)
+{
+	if (best_path[0] == '\0') {
+		return;
+	}
+	FILE *f = fopen(best_path, "w");
+	if (f == NULL) {
+		return;
+	}
+	fprintf(f, "novice %lu\namateur %lu\npro %lu\n", best_scores[0],
+		best_scores[1], best_scores[2]);
+	fclose(f);
+}
+
+/**
+ * place_board() - Centre the board and its side panel in the terminal.
+ */
+static void place_board(struct game *gm)
+{
+	int w = (gm->grid->cols + 1) * 2 + 22;
+	int h = gm->grid->rows + 2;
+	if (h < 19) {
+		h = 19;
+	}
+	origin_x = (COLS > w) ? (COLS - w) / 2 : 0;
+	origin_y = (LINES > h) ? (LINES - h) / 2 : 0;
+}
+
+/**
+ * render() - Draw one frame of the game.
+ */
+static void render(struct game *gm)
+{
+	place_board(gm);
+	draw_frame(gm, origin_x, origin_y);
+	draw_game(gm, origin_x, origin_y);
+
+	if (gm->current_piece.status == PERSISTED) {
+		draw_stars(tmp_res, gm->grid, origin_x, origin_y);
+	} else if (gm->current_piece.status != INVISIBLE) {
+		draw_piece(&gm->current_piece, origin_x + 1, origin_y + 1);
+	}
+	draw_debug(gm, origin_x + gm->grid->cols * 2 + 3, origin_y + 6);
+	refresh();
+}
+
+/**
+ * game_over_screen() - Show the final score over the board and wait.
+ *
+ * @return true to play again, false to quit.
+ */
+static bool game_over_screen(struct game *gm, bool record)
+{
+	nodelay(win, false);
+	flushinp();
+	for (;;) {
+		erase();
+		render(gm);
+		int x = origin_x + 1;
+		int y = origin_y + gm->grid->rows / 2 - 2;
+		int w = gm->grid->cols * 2;
+		const char *lines[] = { "GAME OVER", "", NULL, NULL, "",
+					"r: again", "q: quit" };
+		char score_line[32], best_line[32];
+		snprintf(score_line, sizeof(score_line), "%lu",
+			 (unsigned long)gm->score);
+		snprintf(best_line, sizeof(best_line), "%s",
+			 record ? "new best!" : "");
+		lines[2] = score_line;
+		lines[3] = best_line;
+		for (int i = 0; i < 7; i++) {
+			mvhline(y + i, x, ' ', w);
+			int len = (int)strlen(lines[i]);
+			if (len > w) {
+				len = w;
+			}
+			if (i == 0) {
+				attron(A_BOLD);
+			}
+			mvaddnstr(y + i, x + (w - len) / 2, lines[i], len);
+			if (i == 0) {
+				attroff(A_BOLD);
+			}
+		}
+		refresh();
+		int ch = wgetch(win);
+		if (ch == 'r' || ch == 'R' || ch == ' ' || ch == '\n' ||
+		    ch == KEY_ENTER) {
+			return true;
+		}
+		if (ch == 'q' || ch == 'Q' || ch == 27) {
+			return false;
+		}
+	}
+}
+
+/**
  * get_delay_usec() - Get the delay for a tick in microseconds.
  *
  * If the result of the computation is negative, return zero.
@@ -181,9 +370,11 @@ static uint32_t get_delay_usec(struct timeval start, struct timeval end)
 /**
  * run() - Run the game.
  */
-static game_score_t run(enum game_class cls, uint8_t game_rows, uint8_t game_cols)
+static bool run(enum game_class cls, uint8_t game_rows, uint8_t game_cols,
+		game_score_t *final)
 {
-	win = setup_gfx();
+	erase();
+	nodelay(win, true);
 
 	struct game *gm = game_alloc(game_rows, game_cols);
 	if (gm == NULL) {
@@ -222,31 +413,28 @@ static game_score_t run(enum game_class cls, uint8_t game_rows, uint8_t game_col
 		}
 
 		// Render game
-		draw_frame(gm, 0, 0);
-		draw_game(gm, 0, 0);
-
-		if (gm->current_piece.status == PERSISTED) {
-			draw_stars(tmp_res, gm->grid, 0, 0);
-		} else if (gm->current_piece.status != INVISIBLE) {
-			draw_piece(&gm->current_piece, 1, 1);
-		}
-		draw_debug(gm, gm->grid->cols * 2 + 3, 6);
-		refresh();
+		render(gm);
 
 		// Time End
 		gettimeofday(&time_end, NULL);
 		usleep(get_delay_usec(time_start, time_end));
 	}
 
+	bool again = false;
+	*final = gm->score;
 	if (gm->status == GAME_OVER) {
-		usleep(1000000);
+		int idx = class_index(cls);
+		bool record = gm->score > best_scores[idx];
+		if (record) {
+			best_scores[idx] = gm->score;
+			save_best();
+		}
+		again = game_over_screen(gm, record);
 	}
-	game_score_t final_score = gm->score;
 	game_free(gm);
 	free(tmp_res);
 	free(tmp_drs);
-	teardown_gfx(win);
-	return final_score;
+	return again;
 }
 
 /**
@@ -344,6 +532,13 @@ int main(int argc, char **argv)
 		}
 	}
 
-	printf("Final score: %hu\n", run(cls, game_rows, game_cols));
+	init_best();
+	setlocale(LC_ALL, "");
+	win = setup_gfx();
+	game_score_t score = 0;
+	while (run(cls, game_rows, game_cols, &score)) {
+	}
+	teardown_gfx(win);
+	printf("Final score: %lu\n", (unsigned long)score);
 	return 0;
 }

@@ -1,6 +1,7 @@
 #include "../include/gfx.h"
 
 extern bool debug_mode;
+extern unsigned long best_scores[3];
 
 WINDOW *setup_gfx(void)
 {
@@ -76,11 +77,11 @@ void draw_piece(struct piece *pc, int offset_x, int offset_y)
 
 void draw_frame(struct game *gm, int offset_x, int offset_y)
 {
-	draw_rect(offset_x, offset_y, gm->grid->cols * 2 + 1,
-		  gm->grid->rows + 1);
-	int x = (offset_x + gm->grid->cols + 1) * 2;
+	draw_rect(offset_x, offset_y, offset_x + gm->grid->cols * 2 + 1,
+		  offset_y + gm->grid->rows + 1);
+	int x = offset_x + (gm->grid->cols + 1) * 2;
 	draw_rect(x, offset_y, x + 2 + 1, offset_y + 4);
-	draw_rect(x, offset_y + 5, x + 20 + 1, offset_y + 12);
+	draw_rect(x, offset_y + 5, x + 20 + 1, offset_y + 13);
 }
 
 void draw_game(struct game *gm, int offset_x, int offset_y)
@@ -112,28 +113,38 @@ void draw_debug(struct game *g, int x, int y)
 	} else {
 		mvprintw(y++, x, "            ");
 	}
+	unsigned long best = 0;
 	switch ((enum game_class)g->color_max) {
 	case CLASS_NOVICE:
-		mvprintw(y++, x, "class:\tnovice");
+		mvprintw(y++, x, "class:  novice");
+		best = best_scores[0];
 		break;
 	case CLASS_AMATEUR:
-		mvprintw(y++, x, "class:\tamateur");
+		mvprintw(y++, x, "class:  amateur");
+		best = best_scores[1];
 		break;
 	case CLASS_PRO:
-		mvprintw(y++, x, "class:\tpro");
+		mvprintw(y++, x, "class:  pro");
+		best = best_scores[2];
 		break;
 	default:
-		mvprintw(y++, x, "class:\t???");
+		mvprintw(y++, x, "class:  ???");
 		break;
 	}
-	mvprintw(y++, x, "level:\t%hu ", (unsigned short)g->level);
-	mvprintw(y++, x, "jewels:\t%lu ", (unsigned long)g->jewels_removed);
-	mvprintw(y++, x, "score:\t%lu ", (unsigned long)g->score);
+	mvprintw(y++, x, "level:  %hu ", (unsigned short)g->level);
+	mvprintw(y++, x, "jewels: %lu ", (unsigned long)g->jewels_removed);
+	mvprintw(y++, x, "score:  %lu ", (unsigned long)g->score);
 	if (g->last_score > 0) {
-		mvprintw(y++, x, "      \t+%lu ", (unsigned long)g->last_score);
+		mvprintw(y++, x, "        +%lu     ", (unsigned long)g->last_score);
 	} else {
-		mvprintw(y++, x, "      \t     ");
+		mvprintw(y++, x, "                 ");
 	}
+	mvprintw(y++, x, "best:   %lu ", best > g->score ? best : (unsigned long)g->score);
+	y++;
+	mvprintw(y++, x - 1, "Left Right  move");
+	mvprintw(y++, x - 1, "Down        drop faster");
+	mvprintw(y++, x - 1, "Up A / Z    turn jewels");
+	mvprintw(y++, x - 1, "P pause     Q quit");
 	if (debug_mode) {
 		y++;
 		mvprintw(y++, x, "grid size:\t%d x %d  ", g->grid->cols, g->grid->rows);
