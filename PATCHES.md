@@ -36,7 +36,9 @@ BSD-3-Clause), from his repository github.com/zedr/tinycols (the
 - `.github/workflows/release.yml` (after Galaxis'): Linux x86-64 and
   ARM64 built in Alpine with ncurses linked statically, macOS x86-64 and
   ARM64 against the system ncurses, Windows x86-64 cross-built with MinGW
-  against PDCurses; SHA256SUMS; runs on `*-av.*` tags.
+  against PDCurses (`asciiverse/win/ncurses.h` stands in for the header
+  PDCurses calls curses.h); SHA256SUMS; runs on `*-av.*` tags. Upstream's
+  own workflow (RPM and C tests) is disabled in this repository.
 - `asciiverse/record.sh` and `asciiverse/drive.py` record
   `asciiverse/tinycols.cast`, the 100x30 catalog preview: the driver reads
   the well from the pane, tries every column and turn of each piece with

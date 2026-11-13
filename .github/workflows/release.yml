@@ -100,7 +100,7 @@ jobs:
       - name: Build and package
         run: |
           PDC="$RUNNER_TEMP/PDCurses-$PDCURSES_VERSION"
-          CC=$CROSS-gcc CPPFLAGS="-I$PDC -DPDC_NCMOUSE" CURSES_LIBS="$PDC/wincon/pdcurses.a" \
+          CC=$CROSS-gcc CPPFLAGS="-I$PDC -Iasciiverse/win -DPDC_NCMOUSE" CURSES_LIBS="$PDC/wincon/pdcurses.a" \
             LDFLAGS="-static -s" asciiverse/package.sh $TARGET
           file tinycols.exe
 
