@@ -196,29 +196,44 @@ static int class_index(enum game_class cls)
 /**
  * make_dirs() - Create a folder and its parents, like mkdir -p.
  */
+#ifdef _WIN32
+#include <direct.h>
+#define make_dir(p) _mkdir(p)
+#else
+#define make_dir(p) mkdir((p), 0755)
+#endif
+
 static void make_dirs(char *path)
 {
 	for (char *p = path + 1; *p; p++) {
-		if (*p == '/') {
+		if (*p == '/' || *p == '\\') {
+			char c = *p;
 			*p = '\0';
-			mkdir(path, 0755);
-			*p = '/';
+			make_dir(path);
+			*p = c;
 		}
 	}
-	mkdir(path, 0755);
+	make_dir(path);
 }
 
 /**
  * init_best() - Find the state folder and read the best scores from it.
  *
  * $XDG_STATE_HOME/tinycols, else ~/.local/state/tinycols
- * (~/Library/Application Support/tinycols on macOS).
+ * (~/Library/Application Support/tinycols on macOS,
+ * %LOCALAPPDATA%\tinycols on Windows).
  */
 static void init_best(void)
 {
 	char dir[900];
 	const char *xdg = getenv("XDG_STATE_HOME");
 	const char *home = getenv("HOME");
+#ifdef _WIN32
+	const char *local = getenv("LOCALAPPDATA");
+	if (local != NULL && local[0] != '\0') {
+		snprintf(dir, sizeof(dir), "%s\\tinycols", local);
+	} else
+#endif
 	if (xdg != NULL && xdg[0] == '/') {
 		snprintf(dir, sizeof(dir), "%s/tinycols", xdg);
 	} else if (home != NULL && home[0] != '\0') {
