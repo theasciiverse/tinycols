@@ -1,6 +1,7 @@
 .PHONY: default all test tests debug clean rpm
 
 CC 		?= gcc
+NCURSES		?= -lncursesw
 STD		:= c99
 SHELL 		:= /usr/bin/env bash
 SOURCES 	:= src/tinycols/*.c src/queue.c
@@ -41,21 +42,20 @@ build/tinycols: build
 	@${CC} ${CFLAGS} \
 		-std=gnu99 \
 		-pie \
-		-lncurses \
 		-o $@ \
-		src/main.c src/gfx.c ${SOURCES}
+		src/main.c src/gfx.c ${SOURCES} \
+		$(LDFLAGS) $(NCURSES)
 
 build/tinycols-dbg: build
 	@${CC} ${CFLAGS} ${DBG_CFLAGS} ${SAN_FLAGS} \
 		-std=gnu99 \
-		-lncurses \
 		-o $@ \
-		src/main.c src/gfx.c ${SOURCES}
+		src/main.c src/gfx.c ${SOURCES} $(NCURSES)
 
 build/tinycols-debug: build
-	@${CC} ${CFLAGS} ${DBG_CFLAGS} ${SAN_FLAGS} -std=gnu99 -lncurses \
+	@${CC} ${CFLAGS} ${DBG_CFLAGS} ${SAN_FLAGS} -std=gnu99 \
 		-o build/tinycols-debug \
-		src/main.c src/gfx.c ${SOURCES}
+		src/main.c src/gfx.c ${SOURCES} $(NCURSES)
 
 tests: build/test_tinycols build/test_queue
 
